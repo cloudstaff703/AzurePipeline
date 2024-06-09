@@ -1,0 +1,53 @@
+trigger:
+- master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Define variables for container registry
+  ACR_NAME: 'myContainerRegistry'
+  ACR_LOGIN_SERVER: 'myContainerRegistry.azurecr.io'
+
+stages:
+- stage: Build
+  jobs:
+  - job: BuildAndPush
+    displayName: 'Build and Push Docker Image'
+    steps:
+    - task: UserPythonVersion@0
+      inputs:
+        versionSpec: '3.x'
+        addToPath: true
+
+    - script: |
+        python -m pip install --upgrade pip
+        pip install -r app/requirements.txt
+      displayName: 'Install dependencies'
+
+    - task: Docker@2
+      inputs:
+        containerRegistry: '$(ACR_NAME)'
+        repository: 'myapp'
+        command: 'buildAndPush'
+        Dockerfile: '**/Dockerfile'
+        tags: |
+          $(Build.BuildId)
+
+- stage: Deploy
+  dependsOn: Build
+  jobs:
+  - deployment: DeployToAKS
+    displayName: 'Deploy to AKS'
+    environment: 'staging'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - script: |
+              az aks get-credentials --resource-group $(resourceGroup) --name $(aksCluster)
+              kubectl apply -f kubernetes.yaml
+            displayName: 'Deploy to AKS'
